@@ -1,10 +1,13 @@
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
-# #1. 나이스 API 및 기본 설정
+# 한국 표준시(KST = UTC + 9시간) 설정
+KST = timezone(timedelta(hours=9))
+
+# #1. 나이스 API 설정
 API_KEY = "7968eb7f4f50450183706894e58f8961"
 ATPT_CODE = "R10"  # 경상북도교육청
 
@@ -45,10 +48,11 @@ def fetch_timetable_data(target_date, grade="1", class_nm="8"):
             rows = sorted(rows, key=lambda x: int(x["PERIO"]))
             return [{"perio": r["PERIO"], "subject": r["ITRT_CNTNT"]} for r in rows]
         return None
-    except Exception as e:
-        return f"에러: {e}"
+    except Exception:
+        return None
 
-def fetch_meal_data(target_date):
+def fetch_weekly_meal_data(start_date, end_date):
+    """일주일치 급식 데이터를 한 번에 가져오는 함수"""
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "KEY": API_KEY,
@@ -57,36 +61,41 @@ def fetch_meal_data(target_date):
         "pSize": 100,
         "ATPT_OFCDC_SC_CODE": ATPT_CODE,
         "SD_SCHUL_CODE": SCHOOL_CODE,
-        "MLSV_YMD": target_date
+        "MLSV_FROM_YMD": start_date,
+        "MLSV_TO_YMD": end_date
     }
     try:
         response = requests.get(url, params=params).json()
         if "mealServiceDietInfo" in response:
             return response["mealServiceDietInfo"][1]["row"]
-        return None
-    except Exception as e:
-        return f"에러: {e}"
+        return []
+    except Exception:
+        return []
 
-# Simple HTML 템플릿
+# #3. HTML 템플릿 (동적 날짜 반영)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>학교 생활 정보 알림이</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>김천고등학교 생활 알림이</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: auto; }
-        .card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        h1, h2 { color: #333; }
+        body { font-family: 'Noto Sans KR', sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: auto; background-color: #f8f9fa; }
+        .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        h1 { color: #2c3e50; font-size: 1.5rem; text-align: center; }
+        h2 { color: #34495e; font-size: 1.2rem; border-bottom: 2px solid #eee; padding-bottom: 8px; }
         ul { padding-left: 20px; }
+        .today-tag { background-color: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+        .meal-date { font-weight: bold; font-size: 1.05rem; margin-top: 15px; color: #2980b9; }
+        .meal-type { font-weight: bold; color: #e67e22; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <h1>🏫 학교 생활 정보 알림이</h1>
-    <p><strong>조회 일자:</strong> {{ today_raw }}</p>
+    <h1>🏫 김천고등학교 1학년 8반</h1>
 
     <div class="card">
-        <h2>📅 오늘의 시간표 (1학년 8반)</h2>
+        <h2>📅 오늘의 시간표 ({{ today_display }})</h2>
         {% if timetable and timetable is list %}
             <ul>
             {% for item in timetable %}
@@ -99,41 +108,57 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="card">
-        <h2>🍱 오늘의 급식 메뉴</h2>
-        {% if meal and meal is list %}
-            {% for item in meal %}
-                <h3>▶ {{ item.MMEAL_SC_NM }} ({{ item.CAL_INFO }})</h3>
-                <p>{{ item.DDISH_NM | safe }}</p>
+        <h2>🍱 주간 급식 조회</h2>
+        {% if meal_list %}
+            {% set current_date = [] %}
+            {% for item in meal_list %}
+                {% if item.MLSV_YMD != current_date[-1] if current_date else True %}
+                    {% set _ = current_date.append(item.MLSV_YMD) %}
+                    <div class="meal-date">
+                        📆 {{ item.MLSV_YMD[:4] }}-{{ item.MLSV_YMD[4:6] }}-{{ item.MLSV_YMD[6:] }}
+                        {% if item.MLSV_YMD == today_ymd %}
+                            <span class="today-tag">(오늘)</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+                <div class="meal-type">[{{ item.MMEAL_SC_NM }}] <small>({{ item.CAL_INFO }})</small></div>
+                <div>{{ item.DDISH_NM | safe }}</div>
             {% endfor %}
         {% else %}
-            <p>※ 등록된 급식 정보가 없습니다.</p>
+            <p>※ 급식 정보가 없습니다.</p>
         {% endif %}
     </div>
 </body>
 </html>
 """
 
-# #3. 웹 라우트 (사용자 접속 시마다 작동)
+# #4. 웹 라우트 (접속 시마다 동적 실행)
 @app.route("/")
 def home():
-    # 💡 사용자가 웹에 들어올 때마다 접속 시점의 날짜를 매번 계산
-    now = datetime.now()
-    today_raw = now.strftime("%Y-%m-%d")
-    today = now.strftime("%Y%m%d")
+    # 💡 1. 접속 순간의 한국 시간(KST) 기준 날짜를 동적 계산
+    now = datetime.now(KST)
+    today_ymd = now.strftime("%Y%m%d")
+    today_display = now.strftime("%Y-%m-%d")
 
-    timetable = fetch_timetable_data(today)
-    meal = fetch_meal_data(today)
+    # 주간 조회를 위한 7일간의 범위 계산
+    end_dt = now + timedelta(days=6)
+    end_ymd = end_dt.strftime("%Y%m%d")
 
-    # 급식 메뉴 줄바꿈(<br/>) 처리
-    if meal and isinstance(meal, list):
-        for item in meal:
-            item['DDISH_NM'] = item['DDISH_NM'].replace("<br/>", "<br/>- ")
+    # 💡 2. 동적 계산된 날짜로 API 데이터 수집
+    timetable = fetch_timetable_data(today_ymd)
+    raw_meals = fetch_weekly_meal_data(today_ymd, end_ymd)
+
+    # 급식 줄바꿈 처리
+    if raw_meals:
+        for m in raw_meals:
+            m['DDISH_NM'] = m['DDISH_NM'].replace("<br/>", "<br/>• ")
 
     return render_template_string(
         HTML_TEMPLATE,
-        today_raw=today_raw,
+        today_display=today_display,
+        today_ymd=today_ymd,
         timetable=timetable,
-        meal=meal
+        meal_list=raw_meals
     )
 
 if __name__ == "__main__":
