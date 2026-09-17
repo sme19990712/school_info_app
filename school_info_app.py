@@ -71,7 +71,7 @@ def fetch_weekly_meal_data(start_date, end_date):
     except Exception:
         return []
 
-# #3. HTML 템플릿
+# #3. HTML 템플릿 (Jinja2 문법 에러 수정 완료)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -95,7 +95,7 @@ HTML_TEMPLATE = """
 
     <div class="card">
         <h2>📅 오늘의 시간표 ({{ today_display }})</h2>
-        {% if timetable and timetable is list %}
+        {% if timetable %}
             <ul>
             {% for item in timetable %}
                 <li><strong>{{ item.perio }}교시:</strong> {{ item.subject }}</li>
@@ -127,7 +127,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# #4. 접속할 때마다 동적 실행
+# #4. 접속 시마다 실행
 @app.route("/")
 def home():
     now = datetime.now(KST)
