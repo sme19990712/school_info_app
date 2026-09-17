@@ -52,7 +52,6 @@ def fetch_timetable_data(target_date, grade="1", class_nm="8"):
         return None
 
 def fetch_weekly_meal_data(start_date, end_date):
-    """일주일치 급식 데이터를 한 번에 가져오는 함수"""
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "KEY": API_KEY,
@@ -72,7 +71,7 @@ def fetch_weekly_meal_data(start_date, end_date):
     except Exception:
         return []
 
-# #3. HTML 템플릿 (동적 날짜 반영)
+# #3. HTML 템플릿 (고정 텍스트 제거 및 동적 날짜 조건문 적용)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -81,12 +80,12 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>김천고등학교 생활 알림이</title>
     <style>
-        body { font-family: 'Noto Sans KR', sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: auto; background-color: #f8f9fa; }
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: auto; background-color: #f8f9fa; }
         .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
         h1 { color: #2c3e50; font-size: 1.5rem; text-align: center; }
         h2 { color: #34495e; font-size: 1.2rem; border-bottom: 2px solid #eee; padding-bottom: 8px; }
         ul { padding-left: 20px; }
-        .today-tag { background-color: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+        .today-badge { background-color: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-left: 5px; }
         .meal-date { font-weight: bold; font-size: 1.05rem; margin-top: 15px; color: #2980b9; }
         .meal-type { font-weight: bold; color: #e67e22; margin-top: 5px; }
     </style>
@@ -110,14 +109,15 @@ HTML_TEMPLATE = """
     <div class="card">
         <h2>🍱 주간 급식 조회</h2>
         {% if meal_list %}
-            {% set current_date = [] %}
+            {% set ns = namespace(last_date='') %}
             {% for item in meal_list %}
-                {% if item.MLSV_YMD != current_date[-1] if current_date else True %}
-                    {% set _ = current_date.append(item.MLSV_YMD) %}
+                {% if item.MLSV_YMD != ns.last_date %}
+                    {% set ns.last_date = item.MLSV_YMD %}
                     <div class="meal-date">
-                        📆 {{ item.MLSV_YMD[:4] }}-{{ item.MLSV_YMD[4:6] }}-{{ item.MLSV_YMD[6:] }}
+                        📆 {{ item.MLSV_YMD[:4] }}년 {{ item.MLSV_YMD[4:6] }}월 {{ item.MLSV_YMD[6:] }}일
+                        {# 접속 날짜와 급식 날짜가 동일할 때만 (오늘) 표시 #}
                         {% if item.MLSV_YMD == today_ymd %}
-                            <span class="today-tag">(오늘)</span>
+                            <span class="today-badge">(오늘)</span>
                         {% endif %}
                     </div>
                 {% endif %}
@@ -132,23 +132,20 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# #4. 웹 라우트 (접속 시마다 동적 실행)
+# #4. 웹 라우트 (접속 시마다 한국 시간 동적 적용)
 @app.route("/")
 def home():
-    # 💡 1. 접속 순간의 한국 시간(KST) 기준 날짜를 동적 계산
     now = datetime.now(KST)
     today_ymd = now.strftime("%Y%m%d")
     today_display = now.strftime("%Y-%m-%d")
 
-    # 주간 조회를 위한 7일간의 범위 계산
+    # 오늘부터 6일 후까지 주간 조회
     end_dt = now + timedelta(days=6)
     end_ymd = end_dt.strftime("%Y%m%d")
 
-    # 💡 2. 동적 계산된 날짜로 API 데이터 수집
     timetable = fetch_timetable_data(today_ymd)
     raw_meals = fetch_weekly_meal_data(today_ymd, end_ymd)
 
-    # 급식 줄바꿈 처리
     if raw_meals:
         for m in raw_meals:
             m['DDISH_NM'] = m['DDISH_NM'].replace("<br/>", "<br/>• ")
