@@ -18,12 +18,8 @@ res = requests.get(search_url, params=search_params).json()
 SCHOOL_CODE = res['schoolInfo'][1]['row'][0]['SD_SCHUL_CODE']
 
 
-# 오늘 날짜 (YYYYMMDD 형식)
-today_raw = datetime.now().strftime("%Y-%m-%d")
-today = today_raw.replace("-", "")
-
-# #2. 데이터 수집 함수
-def fetch_timetable_data(today, grade="1", class_nm="8"):
+# #2. 데이터 수집 함수 (target_date 매개변수 받도록 설정)
+def fetch_timetable_data(target_date, grade="1", class_nm="8"):
     url = "https://open.neis.go.kr/hub/hisTimetable"
     params = {
         "KEY": API_KEY,
@@ -32,7 +28,7 @@ def fetch_timetable_data(today, grade="1", class_nm="8"):
         "pSize": 100,
         "ATPT_OFCDC_SC_CODE": ATPT_CODE,
         "SD_SCHUL_CODE": SCHOOL_CODE,
-        "ALL_TI_YMD": today,
+        "ALL_TI_YMD": target_date,
         "GRADE": grade,
         "CLASS_NM": class_nm
     }
@@ -49,7 +45,7 @@ def fetch_timetable_data(today, grade="1", class_nm="8"):
     except Exception as e:
         return f"에러 발생: {e}"
 
-def fetch_meal_data(today):
+def fetch_meal_data(target_date):
     url = "https://open.neis.go.kr/hub/mealServiceDietInfo"
     params = {
         "KEY": API_KEY,
@@ -58,7 +54,7 @@ def fetch_meal_data(today):
         "pSize": 100,
         "ATPT_OFCDC_SC_CODE": ATPT_CODE,
         "SD_SCHUL_CODE": SCHOOL_CODE,
-        "MLSV_YMD": today
+        "MLSV_YMD": target_date
     }
     
     try:
@@ -72,8 +68,13 @@ def fetch_meal_data(today):
     except Exception as e:
         return f"에러 발생: {e}"
 
-# #3. 결과 출력 실행
+# #3. 결과 출력 실행 (실행 시점 날짜 자동 생성)
 if __name__ == "__main__":
+    # 실행하는 시점의 실시간 날짜를 생성 (매번 새로 바뀜)
+    now = datetime.now()
+    today_raw = now.strftime("%Y-%m-%d")
+    today = now.strftime("%Y%m%d")
+
     print("==========================================")
     print(f"🏫 학교 생활 정보 알림이 [{today_raw}]")
     print("==========================================")
