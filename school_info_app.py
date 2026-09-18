@@ -71,7 +71,7 @@ def fetch_weekly_meal_data(start_date, end_date):
     except Exception:
         return []
 
-# #3. HTML 템플릿 (Jinja2 문법 에러 수정 완료)
+# #3. HTML 템플릿 (날짜별 그룹화 출력)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -86,8 +86,10 @@ HTML_TEMPLATE = """
         h2 { color: #34495e; font-size: 1.2rem; border-bottom: 2px solid #eee; padding-bottom: 8px; }
         ul { padding-left: 20px; }
         .today-badge { background-color: #27ae60; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-left: 5px; }
-        .meal-date { font-weight: bold; font-size: 1.05rem; margin-top: 15px; color: #2980b9; }
-        .meal-type { font-weight: bold; color: #e67e22; margin-top: 5px; }
+        .day-box { margin-bottom: 25px; border-bottom: 1px dashed #ddd; padding-bottom: 15px; }
+        .day-box:last-child { border-bottom: none; }
+        .meal-date { font-weight: bold; font-size: 1.1rem; color: #2980b9; margin-bottom: 8px; }
+        .meal-type { font-weight: bold; color: #e67e22; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -108,16 +110,20 @@ HTML_TEMPLATE = """
 
     <div class="card">
         <h2>🍱 주간 급식 조회</h2>
-        {% if meal_list %}
-            {% for item in meal_list %}
-                <div class="meal-date">
-                    📆 {{ item.MLSV_YMD[:4] }}년 {{ item.MLSV_YMD[4:6] }}월 {{ item.MLSV_YMD[6:] }}일
-                    {% if item.MLSV_YMD == today_ymd %}
-                        <span class="today-badge">(오늘)</span>
-                    {% endif %}
+        {% if grouped_meals %}
+            {% for ymd, meals in grouped_meals.items() %}
+                <div class="day-box">
+                    <div class="meal-date">
+                        📆 {{ ymd[:4] }}년 {{ ymd[4:6] }}월 {{ ymd[6:] }}일
+                        {% if ymd == today_ymd %}
+                            <span class="today-badge">(오늘)</span>
+                        {% endif %}
+                    </div>
+                    {% for item in meals %}
+                        <div class="meal-type">[{{ item.MMEAL_SC_NM }}] <small>({{ item.CAL_INFO }})</small></div>
+                        <div>{{ item.DDISH_NM | safe }}</div>
+                    {% endfor %}
                 </div>
-                <div class="meal-type">[{{ item.MMEAL_SC_NM }}] <small>({{ item.CAL_INFO }})</small></div>
-                <div>{{ item.DDISH_NM | safe }}</div>
             {% endfor %}
         {% else %}
             <p>※ 급식 정보가 없습니다.</p>
@@ -127,7 +133,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# #4. 접속 시마다 실행
+# #4. 접속할 때마다 동적 실행 및 데이터 그룹화
 @app.route("/")
 def home():
     now = datetime.now(KST)
@@ -140,16 +146,23 @@ def home():
     timetable = fetch_timetable_data(today_ymd)
     raw_meals = fetch_weekly_meal_data(today_ymd, end_ymd)
 
+    # 파이썬 단에서 날짜(MLSV_YMD) 기준으로 데이터 묶기(그룹화)
+    grouped_meals = {}
     if raw_meals:
         for m in raw_meals:
+            ymd = m['MLSV_YMD']
             m['DDISH_NM'] = m['DDISH_NM'].replace("<br/>", "<br/>• ")
+            
+            if ymd not in grouped_meals:
+                grouped_meals[ymd] = []
+            grouped_meals[ymd].append(m)
 
     return render_template_string(
         HTML_TEMPLATE,
         today_display=today_display,
         today_ymd=today_ymd,
         timetable=timetable,
-        meal_list=raw_meals
+        grouped_meals=grouped_meals
     )
 
 if __name__ == "__main__":
